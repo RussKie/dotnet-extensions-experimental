@@ -36,6 +36,13 @@
     <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
   </PropertyGroup>
 
+  <!-- Stryker.NET doesn't support passing arguments to dotnet or MSBuild processes, so we have to set it explicitly -->
+  <PropertyGroup Condition="Exists('$(MSBuildThisFileDirectory)\.mutationtests')">
+    <SignArtifacts>false</SignArtifacts>
+    <SignAssembly>false</SignAssembly>
+    <SkipAnalyzers>true</SkipAnalyzers>
+  </PropertyGroup>
+
   <PropertyGroup>
     <CheckForOverflowUnderflow>false</CheckForOverflowUnderflow>
     <LangVersion>preview</LangVersion>

@@ -303,6 +303,62 @@ stages:
               skipTests: true
               isWindows: false
 
+      - job: MutationTestsUbuntu
+        timeoutInMinutes: 180
+
+        pool:
+          ${{ if eq(variables['runAsPublic'], 'true') }}:
+            name: $(DncEngPublicBuildPool)
+            demands: ImageOverride -equals build.ubuntu.2004.amd64.open
+          # Non-public (i.e., official builds)
+          ${{ else }}:
+            name: $(DncEngInternalBuildPool)
+            demands: ImageOverride -equals build.ubuntu.2004.amd64
+
+        variables:
+          - _buildScript: $(Build.SourcesDirectory)/build.sh --ci
+
+        preSteps:
+          - checkout: self
+            clean: true
+            persistCredentials: true
+            fetchDepth: 1
+
+        steps:
+          - script: $(_buildScript) --restore /bl:$(Build.Arcade.LogsPath)/restore.binlog
+            displayName: Restore
+
+          - script: $(_buildScript) --mutationTest /bl:$(Build.Arcade.LogsPath)/restore.binlog
+            displayName: Run mutation tests
+
+      - job: MutationTestsWindows
+        timeoutInMinutes: 180
+
+        pool:
+          ${{ if eq(variables['runAsPublic'], 'true') }}:
+            name: $(DncEngPublicBuildPool)
+            demands: ImageOverride -equals windows.vs2022preview.amd64.open
+          # Non-public (i.e., official builds)
+          ${{ else }}:
+            name: $(DncEngInternalBuildPool)
+            demands: ImageOverride -equals windows.vs2022preview.amd64
+
+        variables:
+          - _buildScript: $(Build.SourcesDirectory)/build.cmd -ci -NativeToolsOnMachine
+
+        preSteps:
+          - checkout: self
+            clean: true
+            persistCredentials: true
+            fetchDepth: 1
+
+        steps:
+          - script: $(_buildScript) -restore /bl:$(Build.Arcade.LogsPath)/restore.binlog
+            displayName: Restore
+
+          - script: $(_buildScript) -mutationTest /bl:$(Build.Arcade.LogsPath)/restore.binlog
+            displayName: Run mutation tests
+
 
 # Publish and validation steps. Only run in official builds
 - ${{ if and(ne(variables['runAsPublic'], 'true'), notin(variables['Build.Reason'], 'PullRequest')) }}:

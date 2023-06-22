@@ -10,15 +10,18 @@ set -e
 usage()
 {
   echo "Custom settings:"
-  echo "  --testCoverage             Run unit tests and capture code coverage information."
+  echo "  --testCoverage             Run unit tests and capture code coverage information"
+  echo "  --mutationTest             Run mutation tests"
   echo ""
 }
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+repoRoot=$(realpath $DIR/../)
 
 hasWarnAsError=false
 configuration=''
 testCoverage=false
+mutationTest=false
 
 properties=''
 
@@ -48,6 +51,10 @@ while [[ $# > 0 ]]; do
     -testcoverage)
       testCoverage=true
       ;;
+    -mutationtest)
+      mutationTest=true
+      properties="$properties /p:TestRunnerName=StrykerNET"
+      ;;
     *)
       properties="$properties $1"
       ;;
@@ -61,8 +68,38 @@ if [[ "$hasWarnAsError" == false ]]; then
   properties="$properties --warnAsError false"
 fi
 
+# If mutation testing is requested, ensure no incompatible switches supplied
+if [[ "$mutationTest" == true ]]; then
+  unsupportedSwitches=('deploy' 'deploydeps' 'integrationtest' 'performancetest' 'sign' 'pack' 'testcoverage')
+  for switch in "${unsupportedSwitches[@]}"; do
+    if echo $properties | grep -cswi $switch > /dev/null; then
+      echo "[ERROR] Mutation testing is incompatible with '$switch' switch."
+      echo "    Incompatible switches: ${unsupportedSwitches[*]// /|}"
+      exit -1
+    fi
+  done
+
+  requiredSwitches=('build' 'test')
+  for switch in "${requiredSwitches[@]}"; do
+    if echo $properties | grep -cswi $switch > /dev/null; then
+      # switch is supplied
+      echo "'$switch' switch is supplied" > /dev/null
+    else
+      properties="$properties --$switch"
+    fi
+  done
+
+  # Create a marker file
+  touch "$repoRoot/.mutationtests"
+
+  # Remove the marker upon failure
+  trap 'rm "$repoRoot/.mutationtests"' EXIT
+fi
+
 "$DIR/common/build.sh" $properties
 
+# Remove the marker when we're done
+rm "$repoRoot/.mutationtests"
 
 # Perform code coverage as the last operation, this enables the following scenarios:
 #   .\build.sh --restore --build --c Release --testCoverage
@@ -71,7 +108,6 @@ if [[ "$testCoverage" == true ]]; then
   . "$DIR/common/tools.sh"
   InitializeDotNetCli true > /dev/null
 
-  repoRoot=$(realpath $DIR/../)
   testResultPath="$repoRoot/artifacts/TestResults/$configuration"
 
   # Run tests and collect code coverage
