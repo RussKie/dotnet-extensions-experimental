@@ -10,15 +10,18 @@ set -e
 usage()
 {
   echo "Custom settings:"
-  echo "  --testCoverage             Run unit tests and capture code coverage information."
+  echo "  --testCoverage             Run unit tests and capture code coverage information"
+  echo "  --mutationTesting          Run mutation testing"
   echo ""
 }
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+REPO_ROOT=$(realpath $DIR/../)
 
 hasWarnAsError=false
 configuration=''
 testCoverage=false
+mutationTesting=false
 
 properties=''
 
@@ -48,6 +51,10 @@ while [[ $# > 0 ]]; do
     -testcoverage)
       testCoverage=true
       ;;
+    -mutationtesting)
+      mutationTesting=true
+      properties="$properties /p:TestRunnerName=StrykerNET"
+      ;;
     *)
       properties="$properties $1"
       ;;
@@ -61,8 +68,54 @@ if [[ "$hasWarnAsError" == false ]]; then
   properties="$properties --warnAsError false"
 fi
 
+# If mutation testing is requested, ensure no incompatible switches supplied
+if [[ "$mutationTesting" == true ]]; then
+  unsupportedSwitches=('restore' 'build' 'deploy' 'deploydeps' 'integrationtest' 'performancetest' 'sign' 'pack' 'testcoverage')
+  for switch in "${unsupportedSwitches[@]}"; do
+    if echo $properties | grep -cswi $switch > /dev/null; then
+      echo "\e[31m[ERROR] Mutation testing is incompatible with '$switch' switch.\e[0m"
+      echo "    Incompatible switches: ${unsupportedSwitches[*]// /|}"
+      exit -1
+    fi
+  done
+
+  requiredSwitches=('test')
+  for switch in "${requiredSwitches[@]}"; do
+    if echo $properties | grep -cswi $switch > /dev/null; then
+      # switch is supplied
+      echo "'$switch' switch is supplied" > /dev/null
+    else
+      properties="$properties --$switch"
+    fi
+  done
+
+  # Set envvars so that Stryker can locate the .NET SDK
+  export DOTNET_ROOT=$REPO_ROOT/.dotnet
+  export DOTNET_MULTILEVEL_LOOKUP=0
+  export PATH=$DOTNET_ROOT:$PATH
+
+  # Create a marker file
+  touch "$REPO_ROOT/.mutationtesting"
+  echo 'net8.0' > "$REPO_ROOT/.targetframeworks"
+
+  # Remove the marker upon failure
+  trap 'rm "$REPO_ROOT/.targetframeworks" && rm "$REPO_ROOT/.mutationtesting"' EXIT
+fi
+
 "$DIR/common/build.sh" $properties
 
+# Remove the marker when we're done
+if [[ "$mutationTesting" == true ]]; then
+  [ -e "$REPO_ROOT/.mutationtesting" ] && rm -- "$REPO_ROOT/.mutationtesting"
+
+  testResultsPath="$REPO_ROOT/artifacts/TestResults/$configuration/MutationTestingResults";
+
+  # Merge mutation reports
+  $REPO_ROOT/.dotnet/dotnet pwsh collect $REPO_ROOT/eng/StrykerNET/MergeMutationReports.ps1 $testResultsPath
+  echo ""
+  echo -e "\e[32mMutation testing results:\e[0m $testResultPath/mutation-report-merged.html"
+  echo ""
+fi
 
 # Perform code coverage as the last operation, this enables the following scenarios:
 #   .\build.sh --restore --build --c Release --testCoverage
@@ -71,14 +124,13 @@ if [[ "$testCoverage" == true ]]; then
   . "$DIR/common/tools.sh"
   InitializeDotNetCli true > /dev/null
 
-  repoRoot=$(realpath $DIR/../)
-  testResultPath="$repoRoot/artifacts/TestResults/$configuration"
+  testResultPath="$REPO_ROOT/artifacts/TestResults/$configuration"
 
   # Run tests and collect code coverage
-  $repoRoot/.dotnet/dotnet 'dotnet-coverage' collect --settings $repoRoot/eng/CodeCoverage.config --output $testResultPath/local.cobertura.xml "$repoRoot/build.sh --test --configuration $configuration"
+  $REPO_ROOT/.dotnet/dotnet 'dotnet-coverage' collect --settings $REPO_ROOT/eng/CodeCoverage.config --output $testResultPath/local.cobertura.xml "$REPO_ROOT/build.sh --test --configuration $configuration"
 
   # Generate the code coverage report and open it in the browser
-  $repoRoot/.dotnet/dotnet reportgenerator -reports:$testResultPath/*.cobertura.xml -targetdir:$testResultPath/CoverageResultsHtml -reporttypes:HtmlInline_AzurePipelines
+  $REPO_ROOT/.dotnet/dotnet reportgenerator -reports:$testResultPath/*.cobertura.xml -targetdir:$testResultPath/CoverageResultsHtml -reporttypes:HtmlInline_AzurePipelines
   echo ""
   echo -e "\e[32mCode coverage results:\e[0m $testResultPath/CoverageResultsHtml/index.html"
   echo ""

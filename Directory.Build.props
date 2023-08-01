@@ -39,6 +39,8 @@
     <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
   </PropertyGroup>
 
+  <Import Project="$(MSBuildThisFileDirectory)\eng\MSBuild\MutationTesting.props" Condition="Exists('$(MSBuildThisFileDirectory)\.mutationtesting')" />
+
   <PropertyGroup>
     <CheckForOverflowUnderflow>false</CheckForOverflowUnderflow>
     <LangVersion>preview</LangVersion>
